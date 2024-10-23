@@ -1,0 +1,8 @@
+Pasta server é a api (backend)
+entrar na pasta server
+npm i 
+
+Pasta mobile é o aplicativo
+entrar na pasta mobile
+npm i
+npx expo start
