@@ -7,20 +7,20 @@ import {
   ArrowRight,
   AtSign,
 } from "lucide-react-native"
-
 import { DateData } from "react-native-calendars"
 import dayjs from 'dayjs'
-
-
 import { colors } from "@/styles/colors"
 import { calendarUtils, DatesSelected } from "@/utils/calendarUtils"
-
-
 import { Input } from "@/components/input"
 import { Button } from "@/components/button"
 import { Modal } from "@/components/modal"
 import { Calendar } from '@/components/calendar'
 import { GuestEmail } from "@/components/email"
+import { validateInput } from "@/utils/validateInput"
+import { tripStorage } from "@/storage/trip"
+import { router } from "expo-router"
+import { tripServer } from "@/server/trip-server"
+import { set } from "zod"
 
 enum StepForm {
   TRIP_DETAILS = 1,
@@ -35,13 +35,16 @@ enum MODAL {
 
 export default function Index() {
 
+  //LOAD
+  const [isCreatingTrip, setIsCreatingTrip] = useState(false)
+
 
   // DATA
   const [stepForm, setStepForm] = useState(StepForm.TRIP_DETAILS)
   const [selectedDates, setSelectedDates] = useState({} as DatesSelected)
   const [destination, setDestination] = useState('')
   const [emailToInvite, setEmailToInvite] = useState('')
-  const [emailsToInvite, setEmailsToInvite] = useState<string[]>(['1'])
+  const [emailsToInvite, setEmailsToInvite] = useState<string[]>([])
   const [emailToRemove, setEmailToRemove] = useState('')
 
   //MODAL
@@ -61,6 +64,18 @@ export default function Index() {
       return setStepForm(StepForm.ADD_EMAIL)
     }
 
+    Alert.alert('Confirmação da viagem', 'Deseja confirmar a viagem?', [
+      {
+        text: 'Não',
+        onPress: () => console.log('Cancel Pressed'),
+        style: 'cancel'
+      },
+      { 
+        text: 'Sim',
+        onPress: () => createTrip()
+      }
+    ])
+
   }
 
   function handleSelectData(selectedDay: DateData){
@@ -77,6 +92,62 @@ export default function Index() {
     setEmailsToInvite((prevState) => prevState.filter((email) => email !== emailToRemove))
 
   }
+
+  function handleAddEmail(){
+    if (!validateInput.email(emailToInvite)) 
+      {
+      return Alert.alert('E-mail inválido', 'Digite um e-mail válido')
+      }
+
+    const emailExists = emailsToInvite.find(email => email === emailToInvite)
+
+    if (emailExists) {
+      return Alert.alert('E-mail já adicionado', 'O e-mail já foi adicionado')
+    }
+
+    setEmailsToInvite((prevState) => [...prevState, emailToInvite])
+    setEmailToInvite('')
+
+  }
+
+  async function saveTrip(tripID: string){
+    try {
+      await tripStorage.save(tripID)
+      router.navigate('/trip' + tripID)
+    }
+
+    catch (error) {
+      Alert.alert('Erro ao salvar viagem', 'Não foi possível salvar a viagem, tente novamente')
+      console.log(error)
+      throw error
+    }
+  }
+
+  async function createTrip(){
+    try {
+      setIsCreatingTrip(true)
+      const newTrip = await tripServer.create({
+        destination,
+        starts_at: dayjs(selectedDates.startsAt?.dateString).toString(),
+        ends_at: dayjs(selectedDates.endsAt?.dateString).toString(),
+        emails_to_invite: emailsToInvite
+      })
+      Alert.alert('Viagem criada', 'Sua viagem foi criada com sucesso'), [
+        {
+          Text: 'Ok. Continuar', 
+          onPress: () => saveTrip(newTrip.tripId)
+        }
+      ]
+
+    } catch (error) {
+      console.log(error)
+      setIsCreatingTrip(false)
+      throw error
+    }
+
+  }
+
+
 
 
   return (
@@ -137,15 +208,17 @@ export default function Index() {
               <Input.Field
                 placeholder="Quem estará na viagem?"
                 autoCorrect={false}
+                value= {emailsToInvite.length > 0 ? `${emailsToInvite.length} pessoa(s) convidada(s)` : ''}
                 onPress={() => {
                   Keyboard.dismiss()
+                  setShowModal(MODAL.GUESTS)
                 }}
               />
             </Input>
           </>
         )}
 
-        <Button onPress={handleNextStepForm}>
+        <Button onPress={handleNextStepForm} isLoading={isCreatingTrip}>
           <Button.Title>
             {stepForm === StepForm.TRIP_DETAILS
               ? "Continuar"
@@ -185,6 +258,8 @@ export default function Index() {
       <Modal
         title='Selecionar convidados'
         subtitle='Os convidados irão receber e-mail para confirmar a participação na viagem'
+        visible={showModal === MODAL.GUESTS}
+        onClose={() => setShowModal(MODAL.NONE)}
       >
 
       <View className='my-2 flex-wrap gap-2 border-b border-zinc-800  py-5 items-start'>
@@ -201,10 +276,12 @@ export default function Index() {
                 keyboardType="email-address"
                 onChangeText={value => setEmailToInvite(value.toLowerCase())}
                 value={emailToInvite}
+                returnKeyType="send"
+                onSubmitEditing={handleAddEmail}
               />
        </Input>
       
-      <Button >
+      <Button onPress={handleAddEmail}>
         <Button.Title>Convidar</Button.Title>
       </Button>
 
